@@ -1,8 +1,3 @@
-<style>
-  body {
-    font-family: "Times New Roman", Times, serif;
-  }
-</style>
 
 # Dsai 490 A2 Report
 
