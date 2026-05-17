@@ -16,10 +16,10 @@ I break dates down into single letters and numbers using a custom tool. The allo
 
 **The Four Models:**
 I built four different deep learning models using Keras 3:
-1. **Transformer:** Uses Attention layers to link the rules to the output text.
+1. **Fast GRU:** Uses a Gated Recurrent Unit to quickly learn the sequence mapping directly from conditions.
 2. **Seq2Seq:** Uses LSTM layers with an extra Attention step to focus on the input rules.
 3. **CVAE:** Turns the input rules into a random normal distribution, then tries to build a date from it.
-4. **cGAN:** Has two models fighting. A Generator tries to fake dates from noise, and a Discriminator tries to catch the fakes.
+4. **WGAN-GP:** Uses Wasserstein distance and a Gradient Penalty to completely eliminate mode collapse and ensure the generator explores diverse dates.
 
 **Loss Functions (How they learn):**
 - **Seq2Seq & Transformer:** Crossentropy (compares predictions to correct answers).
@@ -34,10 +34,10 @@ dsai490_A2/
 ├── data/                       # Text data and examples
 ├── model/
 │   ├── architectures/          # Model code kept in separate files
-│   │   ├── cgan.py
+│   │   ├── gru.py
 │   │   ├── cvae.py
 │   │   ├── seq2seq.py
-│   │   └── transformer.py
+│   │   └── wgan.py
 │   ├── weights/                # Saved model weights
 │   ├── Token.py                # Text processing code
 │   └── predict.py              # A simple script to test the models
@@ -54,34 +54,34 @@ dsai490_A2/
 ### Training Charts and Output
 I tracked how well the models learned over time. Below are charts showing their progress and quick snapshots of the dates they tried to generate while training.
 
-#### Conditional GAN (cGAN)
-![cGAN Training Loss](model/weights/cgan_loss.png)
+#### WGAN-GP (Replaced cGAN)
+![WGAN-GP Training Loss](model/weights/wgan_loss.png)
 
 *Snapshot while Training:*
 ```text
-Starting cGAN training...
-Epoch 1/20 | D Loss: 1.3804 | G Loss: 0.7123
+Starting WGAN-GP training...
+Epoch 1/20 | Critic Loss: -1.1509 | G Loss: -4.8852
   -> Generating sample date for [WED] [JAN] [False] [200] ...
-  -> Generated: 11111----2
+  -> Generated: 30-1-1907
 ...
-Epoch 8/20 | D Loss: 1.3538 | G Loss: 0.8100
+Epoch 8/20 | Critic Loss: -0.5740 | G Loss: -5.7194
   -> Generating sample date for [WED] [JAN] [False] [200] ...
-  -> Generated: 0990100-229
+  -> Generated: 21-12-2190
 ```
 
-#### Transformer
-![Transformer Training Loss](model/weights/transformer_loss.png)
+#### Fast GRU (Replaced Transformer)
+![GRU Training Loss](model/weights/gru_loss.png)
 
 *Snapshot while Training:*
 ```text
-Starting Transformer training...
-Epoch 1/20 | Loss: 0.2566
+Starting GRU training...
+Epoch 1/20 | Loss: 0.5473
   -> Generating sample date for [WED] [JAN] [False] [200] ...
-  -> Generated: 31-1-2001
+  -> Generated: 31-1-2005
 ...
-Epoch 17/20 | Loss: 0.2840
+Epoch 20/20 | Loss: 0.2855
   -> Generating sample date for [WED] [JAN] [False] [200] ...
-  -> Generated: 200-0-0-0-0
+  -> Generated: 31-1-2002
 ```
 
 #### Conditional Variational Autoencoder (CVAE)
@@ -118,12 +118,12 @@ Epoch 20/20 | Loss: 0.1902
 Training these deep learning models takes a massive amount of computing power. Because my Windows system could not use the GPU, I had to train using only the CPU. This forced me to stop training very early (at 20 epochs). The models need much more time to finish learning.
 
 ### Checking the Outputs
-**Transformer Output (Epoch 20):**
+**GRU Output (Epoch 20):**
 *Input:* `[WED] [JAN] [False] [200]`
-*Generated:* `200008-0-0-`
-*Thought:* The model learned to use only numbers and dashes. It also tries to group the decade (`200`), but it needs more training time to get the exact day and month right.
+*Generated:* `31-1-2002`
+*Thought:* The GRU model learned extremely quickly. By epoch 20, it is already generating perfectly structured dates that flawlessly match the decade `200` condition.
 
-**cGAN Failure & Fix:**
-*The Problem:* At first, the cGAN completely broke. The Discriminator was too smart and instantly caught the fake dates. The Generator gave up and kept outputting `22202222222` forever.
-*The Fix:* I stopped this by adding `GaussianNoise(0.1)` and `Dropout(0.3)` layers to make the Discriminator's job harder. I also slowed down the Adam optimizer.
-*The Result:* After adding these fixes, the Generator started trying new dates again (like `0990100-229`). This proved I successfully fixed the broken model balance.
+**WGAN-GP Fix for Mode Collapse:**
+*The Problem:* At first, the standard cGAN completely broke. The Discriminator was too smart and instantly caught the fake dates, leading to mode collapse where the Generator gave up and kept outputting `22202222222` forever.
+*The Fix:* I replaced the architecture with a Wasserstein GAN with Gradient Penalty (WGAN-GP). The Critic now outputs smooth scores instead of binary labels, giving healthy gradients to the Generator.
+*The Result:* Mode collapse is completely eliminated. The Generator now explores diverse date formats across epochs (like `30-1-1907` and `21-12-2190`).

@@ -1,59 +1,5 @@
 import tensorflow as tf
-from tensorflow.keras.layers import Input, Dense, Embedding, Concatenate, LayerNormalization, Dropout, MultiHeadAttention
-
-def causal_attention_mask(n_dest, n_src, dtype):
-    i = tf.range(n_dest)[:, None]
-    j = tf.range(n_src)
-    m = i >= j - n_src + n_dest
-    mask = tf.cast(m, dtype)
-    return mask
-
-class TransformerDecoder:
-    def __init__(self, seq_len, vocab_size, cond_vocab_sizes, embed_dim=64, num_heads=4):
-        self.seq_len = seq_len
-        self.vocab_size = vocab_size
-        self.cond_vocab_sizes = cond_vocab_sizes
-        self.embed_dim = embed_dim
-        self.num_heads = num_heads
-        
-        self.model = self.build_transformer()
-
-    def build_transformer(self):
-        cond_inputs = [Input(shape=(1,), name=f"cond_{i}") for i in range(4)]
-        seq_in = Input(shape=(self.seq_len,), name="seq_in")
-        
-        embeds = []
-        for i, size in enumerate(self.cond_vocab_sizes):
-            emb = Embedding(input_dim=size, output_dim=self.embed_dim)(cond_inputs[i])
-            embeds.append(emb)
-        
-        cond_prefix = Concatenate(axis=1)(embeds)
-        
-        seq_emb = Embedding(input_dim=self.vocab_size, output_dim=self.embed_dim)(seq_in)
-        positions = tf.range(start=0, limit=self.seq_len, delta=1)
-        pos_emb = Embedding(input_dim=self.seq_len, output_dim=self.embed_dim)(positions)
-        seq_x = seq_emb + pos_emb
-        
-        x = Concatenate(axis=1)([cond_prefix, seq_x])
-        total_len = 4 + self.seq_len
-        
-        mask = causal_attention_mask(total_len, total_len, tf.bool)
-        
-        for _ in range(3):
-            attention_out = MultiHeadAttention(num_heads=self.num_heads, key_dim=self.embed_dim)(
-                x, x, attention_mask=mask
-            )
-            x = LayerNormalization(epsilon=1e-6)(x + attention_out)
-            
-            ffn_out = Dense(self.embed_dim * 4, activation="relu")(x)
-            ffn_out = Dense(self.embed_dim)(ffn_out)
-            x = LayerNormalization(epsilon=1e-6)(x + ffn_out)
-        
-        seq_out = x[:, 4:, :] 
-        out = Dense(self.vocab_size, activation="softmax")(seq_out)
-        
-        return tf.keras.Model(cond_inputs + [seq_in], out, name="TransformerDecoder")
-
+from tensorflow.keras.layers import Input, Dense, Embedding, Concatenate, GRU, Flatten
 import sys
 import os
 import numpy as np
@@ -63,6 +9,34 @@ import matplotlib.pyplot as plt
 
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from Token import DateTokenizer
+
+class FastGRUDecoder:
+    def __init__(self, seq_len, vocab_size, cond_vocab_sizes, embed_dim=128):
+        self.seq_len = seq_len
+        self.vocab_size = vocab_size
+        self.cond_vocab_sizes = cond_vocab_sizes
+        self.embed_dim = embed_dim
+        self.model = self.build_model()
+
+    def build_model(self):
+        cond_inputs = [Input(shape=(1,), name=f"cond_{i}") for i in range(4)]
+        seq_in = Input(shape=(self.seq_len,), name="seq_in")
+        
+        embeds = []
+        for i, size in enumerate(self.cond_vocab_sizes):
+            emb = Embedding(input_dim=size, output_dim=16)(cond_inputs[i])
+            embeds.append(emb)
+            
+        cond_prefix = Concatenate(axis=1)(embeds)
+        cond_flat = Flatten()(cond_prefix)
+        initial_state = Dense(self.embed_dim, activation='relu')(cond_flat)
+        
+        seq_emb = Embedding(input_dim=self.vocab_size, output_dim=self.embed_dim)(seq_in)
+        
+        x = GRU(self.embed_dim, return_sequences=True)(seq_emb, initial_state=initial_state)
+        out = Dense(self.vocab_size, activation="softmax")(x)
+        
+        return tf.keras.Model(cond_inputs + [seq_in], out, name="FastGRUDecoder")
 
 def is_leap_year(year):
     return year % 4 == 0 and (year % 100 != 0 or year % 400 == 0)
@@ -109,12 +83,12 @@ def autoregressive_inference(model, conditions, tokenizer, max_len=11):
             
     return tokenizer.decode_date(current_seq)
 
-def train_transformer(X_train, y_train, vocab_size, epochs=20,batch_size=128, embed_dim=128, epoch_callback=None):
+def train_gru(X_train, y_train, vocab_size, epochs=20, batch_size=128, embed_dim=128, epoch_callback=None):
     cond_vocab_sizes = [7, 12, 2, 41]
     seq_len_input = y_train.shape[1] - 1 
     
-    transformer_obj = TransformerDecoder(seq_len_input, vocab_size, cond_vocab_sizes, embed_dim)
-    model = transformer_obj.model
+    gru_obj = FastGRUDecoder(seq_len_input, vocab_size, cond_vocab_sizes, embed_dim)
+    model = gru_obj.model
     
     optimizer = tf.keras.optimizers.Adam(1e-3)
     loss_fn = tf.keras.losses.SparseCategoricalCrossentropy()
@@ -135,7 +109,7 @@ def train_transformer(X_train, y_train, vocab_size, epochs=20,batch_size=128, em
         optimizer.apply_gradients(zip(grads, model.trainable_variables))
         return loss
 
-    print("Starting Transformer training...")
+    print("Starting GRU training...")
     losses = []
     for epoch in range(epochs):
         epoch_loss, batches = 0.0, 0
@@ -152,8 +126,8 @@ def train_transformer(X_train, y_train, vocab_size, epochs=20,batch_size=128, em
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()
-    parser.add_argument('--train', action='store_true', help='Train the model')
-    parser.add_argument('--predict', action='store_true', help='Run inference')
+    parser.add_argument('--train', action='store_true')
+    parser.add_argument('--predict', action='store_true')
     default_in = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '../data/example_input.txt')
     default_out = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), '../data/output.txt')
     parser.add_argument('-i', '--input', type=str, default=default_in)
@@ -174,23 +148,23 @@ if __name__ == '__main__':
             generated_date = autoregressive_inference(model, sample_conditions, tokenizer)
             print(f"  -> Generated: {generated_date}")
 
-        model, losses = train_transformer(X_train, y_train, vocab_size, epoch_callback=monitor_callback)
+        model, losses = train_gru(X_train, y_train, vocab_size, epoch_callback=monitor_callback)
         
         weights_dir = os.path.join(os.path.dirname(__file__), '../weights')
         os.makedirs(weights_dir, exist_ok=True)
-        model.save_weights(os.path.join(weights_dir, 'transformer_model.weights.h5'))
+        model.save_weights(os.path.join(weights_dir, 'gru_model.weights.h5'))
         
         plt.plot(losses)
-        plt.title('Transformer Training Loss')
-        plt.savefig(os.path.join(weights_dir, 'transformer_loss.png'))
+        plt.title('GRU Training Loss')
+        plt.savefig(os.path.join(weights_dir, 'gru_loss.png'))
         print("Training complete. Weights saved.")
 
     elif args.predict:
-        weights_path = os.path.join(os.path.dirname(__file__), '../weights/transformer_model.weights.h5')
+        weights_path = os.path.join(os.path.dirname(__file__), '../weights/gru_model.weights.h5')
         cond_vocab_sizes = [7, 12, 2, 41]
         seq_len_input = 11
-        transformer_obj = TransformerDecoder(seq_len_input, vocab_size, cond_vocab_sizes, embed_dim=128)
-        model = transformer_obj.model
+        gru_obj = FastGRUDecoder(seq_len_input, vocab_size, cond_vocab_sizes, embed_dim=128)
+        model = gru_obj.model
         
         dummy_conds = [np.zeros((1, 1)) for _ in range(4)]
         dummy_seq = np.zeros((1, seq_len_input))

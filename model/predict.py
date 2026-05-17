@@ -7,7 +7,7 @@ if __name__ == "__main__":
     parser.add_argument('-i', '--input', required=True, help="Path to the input file (e.g., example_input.txt)")
     parser.add_argument('-o', '--output', required=True, help="Path to save the generated output file")
     
-    parser.add_argument('--arch', type=str, default='transformer', choices=['transformer', 'seq2seq', 'cvae', 'cgan'],
+    parser.add_argument('--arch', type=str, default='gru', choices=['gru', 'seq2seq', 'cvae', 'wgan'],
                         help="Which architecture to use for prediction")
     args = parser.parse_args()
 
