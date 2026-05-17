@@ -1,3 +1,8 @@
+<style>
+  body {
+    font-family: "Times New Roman", Times, serif;
+  }
+</style>
 
 # Dsai 490 A2 Report
 
@@ -16,15 +21,17 @@ I break dates down into single letters and numbers using a custom tool. The allo
 
 **The Four Models:**
 I built four different deep learning models using Keras 3:
+
 1. **Fast GRU:** Uses a Gated Recurrent Unit to quickly learn the sequence mapping directly from conditions.
 2. **Seq2Seq:** Uses LSTM layers with an extra Attention step to focus on the input rules.
 3. **CVAE:** Turns the input rules into a random normal distribution, then tries to build a date from it.
 4. **WGAN-GP:** Uses Wasserstein distance and a Gradient Penalty to completely eliminate mode collapse and ensure the generator explores diverse dates.
 
 **Loss Functions (How they learn):**
-- **Seq2Seq & Transformer:** Crossentropy (compares predictions to correct answers).
+
+- **Seq2Seq & Fast GRU:** Crossentropy (compares predictions to correct answers).
 - **CVAE:** Crossentropy plus a KL Divergence penalty (to keep the random distribution normal).
-- **cGAN:** Binary Crossentropy with label smoothing (tricking the discriminator to keep the fight fair).
+- **WGAN-GP:** Wasserstein distance with a Gradient Penalty (forces the critic to enforce realistic sequences).
 
 ## 3. Clean Code Structure
 I organized the project into neat folders so it is easy to read, just like real software engineers do:
